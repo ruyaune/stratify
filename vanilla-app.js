@@ -10,20 +10,20 @@ const OFFLINE_SOUNDTRACKS = {
 };
 
 const NAV = [
-  ['dashboard','⌂','Home'],
-  ['planner','◫','Planner'],
-  ['focus','◉','Focus'],
-  ['progress','↗','Progress'],
-  ['social','◎','Social']
+  ['dashboard','home','Home'],
+  ['planner','calendar','Planner'],
+  ['focus','focus','Focus'],
+  ['progress','chart','Progress'],
+  ['social','users','Social']
 ];
 
 const SHOWCASE = [
-  ['Why Stratify','Stratify brings planning, focus, progress, and social accountability into one calm Student Life OS.','dashboard'],
-  ['Planner','Students can add real plans, complete them, and keep daily work in one connected place.','planner'],
-  ['Strati Assistant','Strati demonstrates how one command surface can operate Planner, Focus, music, and navigation.','dashboard'],
-  ['Locked-In Focus','Focus combines a timer, one clear goal, soundtrack, and a distraction-resistant study environment.','focus'],
-  ['Progress','Progress turns completed work into useful signals about consistency, focus and subject performance.','progress'],
-  ['Social','Social supports accountability: live study presence, encouragement, and focused connection without a noisy feed.','social']
+  ['Why Stratify','One calm student-life system instead of scattered tools. Plan, focus, improve, repeat.','dashboard'],
+  ['Planner','A real daily plan with clear next actions, completion tracking, and local persistence.','planner'],
+  ['Strati Assistant','One offline command surface can add tasks, prepare focus, select ambience, and answer what is left.','dashboard'],
+  ['Locked-In Focus','One goal, one timer, one soundtrack. No side quests until the session ends.','focus'],
+  ['Progress','Simple signals turn completed work into useful feedback about consistency and focus time.','progress'],
+  ['Social','Accountability without a distracting feed: presence, encouragement, and focused study together.','social']
 ];
 
 const demoPlanner = [
@@ -35,8 +35,6 @@ const demoPlanner = [
 ];
 
 const state = {
-  phase:'app',
-  user:{name:'User'},
   section:'dashboard',
   data:null,
   peers:[
@@ -47,24 +45,23 @@ const state = {
   stratiOpen:false,
   stratiMode:'study',
   stratiMessages:[],
-  stratiDraft:'',
   stratiBusy:false,
-  stratiError:'',
   showcaseStep:-1,
   focusTimer:null,
   toast:''
 };
 
 const defaultData = () => ({
-  profileConfigured:true,
   profile:{name:'User',grade:'Grade 10',curriculum:'National Curriculum — Science',goal:'Exam excellence'},
   plannerItems:demoPlanner.map(x=>({...x})),
-  focus:{subject:'Physics',mode:'Practice',goal:'Complete Electromagnetism questions 1–10',duration:40,secondsLeft:2400,running:false,started:false},
+  focus:{subject:'Physics',mode:'Practice',goal:'Complete Electromagnetism questions 1–10',duration:40,secondsLeft:2400,running:false,started:false,scratch:''},
   music:{modeLabel:'Lo-fi',playing:false},
-  focusHistory:[],
-  notes:[],
-  theme:'apple'
+  focusHistory:[]
 });
+
+const STORAGE_KEY = 'stratify_offline_competition_v2';
+let audioCtx=null;
+let audioNodes=[];
 
 function escapeHtml(value=''){
   return String(value).replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
@@ -73,204 +70,148 @@ function attr(value=''){ return escapeHtml(value); }
 function clamp(n,min,max){ return Math.max(min,Math.min(max,n)); }
 function uid(){ return `item-${Date.now()}-${Math.random().toString(36).slice(2,7)}`; }
 function formatClock(seconds){ const s=Math.max(0,Number(seconds)||0); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`; }
-const STORAGE_KEY = 'stratify_offline_competition_v1';
-let audioCtx=null;
-let audioNodes=[];
+function initials(name='User'){ return name.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
 
-function showToast(message){
-  state.toast=message; render();
-  clearTimeout(showToast.timer); showToast.timer=setTimeout(()=>{state.toast='';render();},1800);
+function icon(name){
+  const paths={
+    home:'<path d="M3.5 10.8 12 3.7l8.5 7.1v8.4a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8z"/><path d="M9 21v-7h6v7"/>',
+    calendar:'<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M7.5 3v4M16.5 3v4M3.5 9h17"/><path d="M7.5 13h3M13.5 13h3M7.5 17h3"/>',
+    focus:'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/>',
+    chart:'<path d="M4 19.5V10M10 19.5V5M16 19.5v-7M22 19.5H2"/>',
+    users:'<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.7 2.5-5.5 5.5-5.5s4.9 1.8 5.5 5.5"/><path d="M15.5 5.5a3 3 0 0 1 0 5.8M16.8 14c2.2.4 3.5 2 3.9 5"/>',
+    sparkle:'<path d="m12 2 1.45 4.2L18 7.7l-4.55 1.5L12 13.5l-1.45-4.3L6 7.7l4.55-1.5z"/><path d="m18.5 14 .7 2 2.1.7-2.1.7-.7 2-.7-2-2.1-.7 2.1-.7z"/>',
+    presentation:'<rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M8 20h8M12 16.5V20M7.5 12l3-3 2.2 2.1 4-4"/>',
+    user:'<circle cx="12" cy="8" r="3.3"/><path d="M5 20c.8-4 3.1-6 7-6s6.2 2 7 6"/>',
+    arrow:'<path d="M5 12h13M14 7l5 5-5 5"/>',
+    check:'<path d="m5 12.5 4 4L19 7"/>',
+    plus:'<path d="M12 5v14M5 12h14"/>',
+    trash:'<path d="M4.5 7h15M9 7V4.5h6V7M7 7l.8 13h8.4L17 7M10 10.5v6M14 10.5v6"/>',
+    flame:'<path d="M13.5 2.5c.7 3-1.8 4.3-1 6.3.5 1 1.7 1.3 2.8.5 1.5-1 2-2.9 1.8-4.7 2.3 2 3.9 4.2 3.9 7 0 4.1-3.2 7.2-7.2 7.2S5 18.7 5 14.7c0-3 1.7-5.5 4.6-7.8-.1 2 .7 3.5 2.2 4.2-.4-3.1.4-5.8 1.7-8.6Z"/>',
+    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'
+  };
+  return `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name]||paths.sparkle}</svg>`;
 }
 
 function safeLoad(){
-  try{
-    const raw=localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  }catch{return null;}
+  try{ const raw=localStorage.getItem(STORAGE_KEY); return raw?JSON.parse(raw):null; }catch{return null;}
 }
-
-function saveState(){
-  if(!state.data)return;
-  try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(state.data)); }catch{}
-}
-
+function saveState(){ if(!state.data)return; try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state.data));}catch{} }
 function bootstrapOffline(){
   try{if(new URLSearchParams(location.search).has('reset')) localStorage.removeItem(STORAGE_KEY);}catch{}
   const stored=safeLoad()||{};
   state.data={...defaultData(),...stored};
   state.data.profile={...defaultData().profile,...(stored.profile||{}),name:'User'};
-  state.data.plannerItems=Array.isArray(stored.plannerItems)&&stored.plannerItems.length ? stored.plannerItems : demoPlanner.map(x=>({...x}));
+  state.data.plannerItems=Array.isArray(stored.plannerItems)&&stored.plannerItems.length?stored.plannerItems:demoPlanner.map(x=>({...x}));
   state.data.focus={...defaultData().focus,...(stored.focus||{}),running:false,started:false};
   state.data.music={...defaultData().music,...(stored.music||{}),playing:false};
   state.data.focusHistory=Array.isArray(stored.focusHistory)?stored.focusHistory:[];
   render();
 }
 
-function stopAmbientAudio(){
-  for(const node of audioNodes){try{node.stop?.();}catch{}try{node.disconnect?.();}catch{}}
-  audioNodes=[];
-  if(state.data?.music) state.data.music.playing=false;
-}
-
-function makeNoise(ctx,seconds=2){
-  const buffer=ctx.createBuffer(1,ctx.sampleRate*seconds,ctx.sampleRate);
-  const data=buffer.getChannelData(0);
-  for(let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*0.35;
-  const src=ctx.createBufferSource();src.buffer=buffer;src.loop=true;return src;
-}
-
+function showToast(message){ state.toast=message;render();clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>{state.toast='';render();},1800); }
+function stopAmbientAudio(){ for(const node of audioNodes){try{node.stop?.();}catch{}try{node.disconnect?.();}catch{}} audioNodes=[];if(state.data?.music)state.data.music.playing=false; }
+function makeNoise(ctx,seconds=2){const b=ctx.createBuffer(1,ctx.sampleRate*seconds,ctx.sampleRate);const d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*.35;const s=ctx.createBufferSource();s.buffer=b;s.loop=true;return s;}
 function startAmbientAudio(label){
-  stopAmbientAudio();
-  const Ctx=window.AudioContext||window.webkitAudioContext;
-  if(!Ctx){showToast('Audio is unavailable in this browser.');return;}
-  audioCtx=audioCtx||new Ctx();
-  if(audioCtx.state==='suspended') audioCtx.resume();
+  stopAmbientAudio();const Ctx=window.AudioContext||window.webkitAudioContext;if(!Ctx){showToast('Audio is unavailable in this browser.');return;}
+  audioCtx=audioCtx||new Ctx();if(audioCtx.state==='suspended')audioCtx.resume();
   const gain=audioCtx.createGain();gain.gain.value=.055;gain.connect(audioCtx.destination);audioNodes.push(gain);
-  if(['Rain','Café','Brown Noise'].includes(label)){
-    const noise=makeNoise(audioCtx);const filter=audioCtx.createBiquadFilter();
-    filter.type='lowpass';filter.frequency.value=label==='Rain'?1400:label==='Café'?700:350;
-    noise.connect(filter);filter.connect(gain);noise.start();audioNodes.push(noise,filter);
-  }else{
-    const base=label==='Deep Space'?82:label==='Piano'?261.63:174.61;
-    [1,1.5,2].forEach((ratio,i)=>{const osc=audioCtx.createOscillator();const g=audioCtx.createGain();osc.type=label==='Lo-fi'?'triangle':'sine';osc.frequency.value=base*ratio;g.gain.value=.025/(i+1);osc.connect(g);g.connect(gain);osc.start();audioNodes.push(osc,g);});
-  }
+  if(['Rain','Café','Brown Noise'].includes(label)){const noise=makeNoise(audioCtx);const filter=audioCtx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=label==='Rain'?1400:label==='Café'?700:350;noise.connect(filter);filter.connect(gain);noise.start();audioNodes.push(noise,filter);}else{const base=label==='Deep Space'?82:label==='Piano'?261.63:174.61;[1,1.5,2].forEach((ratio,i)=>{const osc=audioCtx.createOscillator();const g=audioCtx.createGain();osc.type=label==='Lo-fi'?'triangle':'sine';osc.frequency.value=base*ratio;g.gain.value=.025/(i+1);osc.connect(g);g.connect(gain);osc.start();audioNodes.push(osc,g);});}
   state.data.music.playing=true;saveState();render();
 }
-
-function toggleAmbientAudio(){
-  const music=state.data.music;
-  if(music.playing){stopAmbientAudio();saveState();render();showToast('Soundtrack paused.');}
-  else{startAmbientAudio(music.modeLabel);showToast(`${music.modeLabel} ambient playing.`);}
-}
+function toggleAmbientAudio(){const music=state.data.music;if(music.playing){stopAmbientAudio();saveState();render();showToast('Soundtrack paused.');}else{startAmbientAudio(music.modeLabel);showToast(`${music.modeLabel} ambient playing.`);}}
 
 function appShell(content){
   const locked=Boolean(state.data?.focus?.started);
-  const userName='User';
-  return `
-  <div class="app-shell stitch-shell ${locked?'locked-mode':''}">
-    <aside class="sidebar sidebar-minimal stitch-sidebar">
-      <button class="brand-lockup brand-button" data-nav="dashboard" aria-label="Home"><span class="logo-mark compact"><span class="logo-layer l1"></span><span class="logo-layer l2"></span><span class="logo-layer l3"></span></span><span>STRATIFY</span></button>
-      <nav class="nav-list stitch-nav-list">
-        ${NAV.map(([id,icon,label])=>`<button class="nav-item ${state.section===id?'active':''}" data-nav="${id}"><span class="icon">${icon}</span><span>${label}</span></button>`).join('')}
-      </nav>
-      <div class="sidebar-spacer"></div>
-      <button class="nav-item showcase-nav" data-action="showcase"><span class="icon">✦</span><span>Showcase Mode</span></button>
-      <button class="nav-item sidebar-profile sidebar-profile-button ${state.section==='profile'?'active':''}" data-nav="profile"><span class="avatar small">US</span><div><strong>${userName}</strong><span>${escapeHtml(state.data?.profile?.grade||'Student')}</span></div></button>
+  const current=NAV.find(([id])=>id===state.section)?.[2] || (state.section==='profile'?'Profile':'Home');
+  return `<div class="app-shell ${locked?'locked-mode':''}">
+    <aside class="nav-rail">
+      <button class="brand" data-nav="dashboard" aria-label="Stratify Home"><span class="brand-glyph"><i></i><i></i><i></i></span><span class="brand-word">STRATIFY</span></button>
+      <div class="rail-label">STUDENT LIFE OS</div>
+      <nav class="rail-nav">${NAV.map(([id,ico,label])=>`<button class="rail-link ${state.section===id?'active':''}" data-nav="${id}">${icon(ico)}<span>${label}</span></button>`).join('')}</nav>
+      <div class="rail-spacer"></div>
+      <button class="showcase-button" data-action="showcase">${icon('presentation')}<span><strong>Showcase</strong><small>Judge mode</small></span></button>
+      <button class="profile-chip ${state.section==='profile'?'active':''}" data-nav="profile"><span class="avatar">US</span><span><strong>User</strong><small>${escapeHtml(state.data.profile?.grade||'Student')}</small></span>${icon('arrow')}</button>
     </aside>
-    <div class="app-main">
-      <header class="topbar topbar-minimal stitch-topbar">
-        <div class="mobile-brand"><strong>STRATIFY</strong></div><div class="topbar-spacer"></div>
-        ${locked?'<span class="locked-top-pill">🔒 LOCKED IN</span>':''}
-        <button class="strati-top-trigger stitch-strati-trigger" data-action="strati">✦ <span>Strati</span></button>
-        <button class="top-profile top-profile-button" data-nav="profile"><span class="avatar small">US</span></button>
-      </header>
+    <section class="workspace">
+      <header class="topbar"><div class="mobile-brand"><span class="brand-glyph mini"><i></i><i></i><i></i></span><strong>STRATIFY</strong></div><div class="crumb"><span>STRATIFY</span><b>/</b><strong>${escapeHtml(current)}</strong></div><div class="top-actions">${locked?'<span class="locked-pill">● LOCKED IN</span>':''}<button class="strati-button" data-action="strati">${icon('sparkle')}<span>Ask Strati</span></button><button class="avatar-button" data-nav="profile">US</button></div></header>
       ${content}
-    </div>
-    ${state.stratiOpen?stratiModal():''}
-    ${state.showcaseStep>=0?showcaseOverlay():''}
-    ${state.toast?`<div class="toast">${escapeHtml(state.toast)}</div>`:''}
+    </section>
+    ${state.stratiOpen?stratiModal():''}${state.showcaseStep>=0?showcaseOverlay():''}${state.toast?`<div class="toast">${escapeHtml(state.toast)}</div>`:''}
   </div>`;
 }
 
 function homePage(){
-  const items=state.data.plannerItems||[]; const done=items.filter(x=>x.done).length; const percent=items.length?Math.round(done/items.length*100):0; const next=items.find(x=>!x.done);
-  const hour=new Date().getHours(); const part=hour<12?'morning':hour<18?'afternoon':'evening';
-  return `<main class="page dashboard-page dashboard-minimal stitch-home-page">
-    <header class="stitch-home-head"><h1>Good ${part},<br>User.</h1><p>A calm system for planning, focusing, improving, and staying consistent.</p></header>
-    <section class="stitch-home-grid">
-      <section class="card stitch-why-card"><span class="eyebrow">WHY STRATIFY</span><h2>Clarity for your academic life.</h2><p>Students often use separate tools for planning, focusing, progress and staying consistent. Stratify brings them together into one connected Student Life OS.</p><div class="stitch-flow"><span><i class="flow-dot dot-a"></i>PLAN</span><b>›</b><span><i class="flow-dot dot-b"></i>FOCUS</span><b>›</b><span><i class="flow-dot dot-c"></i>IMPROVE</span><b>›</b><span><i class="flow-dot dot-d"></i>REPEAT</span></div></section>
-      <section class="card stitch-today-card"><span class="eyebrow">TODAY</span><div class="stitch-today-value"><strong>${done}</strong><span>/ ${items.length} complete</span></div><div class="progress-track large"><span style="width:${percent}%"></span></div><button class="minimal-link" data-nav="planner">Open planner →</button></section>
-      <section class="card stitch-next-card"><span class="eyebrow">UP NEXT</span><h2>${next?escapeHtml(next.title):'You are clear.'}</h2><p>${next?`${escapeHtml(next.time||'Any time')} · ${escapeHtml(next.type||'Task')}`:'No unfinished tasks.'}</p><button class="btn primary" data-action="focus-next">Start Focus →</button></section>
+  const items=state.data.plannerItems||[];const done=items.filter(x=>x.done).length;const percent=items.length?Math.round(done/items.length*100):0;const next=items.find(x=>!x.done);const left=items.filter(x=>!x.done).slice(0,3);
+  const hour=new Date().getHours();const part=hour<12?'morning':hour<18?'afternoon':'evening';
+  return `<main class="page home-page">
+    <section class="page-hero home-hero"><div class="hero-copy"><span class="kicker">YOUR STUDENT LIFE, IN LAYERS</span><h1>Good ${part}, User.</h1><p>Turn a crowded day into one clear next move.</p><div class="hero-actions"><button class="btn primary" data-action="focus-next">Start next focus ${icon('arrow')}</button><button class="btn secondary" data-nav="planner">Open planner</button></div></div><div class="orbit-card"><div class="orbit-ring" style="--p:${percent}"><div><strong>${percent}%</strong><span>day aligned</span></div></div><p>${done} of ${items.length} planned layers complete</p></div></section>
+    <section class="home-bento">
+      <article class="strata-card system-card"><div class="card-top"><span class="kicker">THE STRATIFY LOOP</span><span class="status-dot">LIVE</span></div><h2>One system. Four deliberate moves.</h2><div class="layer-flow"><div><span>01</span><b>PLAN</b><small>Make the next move visible.</small></div><i></i><div><span>02</span><b>FOCUS</b><small>Protect one task from noise.</small></div><i></i><div><span>03</span><b>IMPROVE</b><small>Read what your work reveals.</small></div><i></i><div><span>04</span><b>REPEAT</b><small>Build consistency, not chaos.</small></div></div></article>
+      <article class="strata-card task-preview"><div class="card-top"><span class="kicker">TODAY'S LAYERS</span><button class="text-link" data-nav="planner">See all ${icon('arrow')}</button></div><div class="mini-tasks">${left.length?left.map((x,i)=>`<div><span class="mini-index">${String(i+1).padStart(2,'0')}</span><p><strong>${escapeHtml(x.title)}</strong><small>${escapeHtml(x.time||'Any time')} · ${escapeHtml(x.type)}</small></p></div>`).join(''):'<div class="empty-state">All planned layers are complete.</div>'}</div></article>
+      <article class="strata-card next-card"><span class="kicker">UP NEXT</span><div class="next-icon">${icon('focus')}</div><h2>${next?escapeHtml(next.title):'You are clear.'}</h2><p>${next?`${escapeHtml(next.time||'Any time')} · ${escapeHtml(next.type)}`:'Nothing unfinished right now.'}</p><button class="btn inverse full" data-action="focus-next">Prepare Locked-In ${icon('arrow')}</button></article>
+      <article class="strata-card momentum-card"><span class="kicker">MOMENTUM</span><div class="momentum-value"><strong>${done}</strong><span>completed today</span></div><div class="micro-bars">${[45,70,54,86,64,92,percent].map((v,i)=>`<i style="height:${Math.max(18,v)}%" class="${i===6?'active':''}"></i>`).join('')}</div><p>Consistency grows from finishing the plan you already made.</p></article>
     </section>
   </main>`;
 }
 
 function plannerPage(){
-  const items=state.data.plannerItems||[]; const done=items.filter(x=>x.done).length;
-  return `<main class="page planner-page stitch-planner-page">
-    <div class="page-title planner-title"><div><span class="eyebrow">YOUR DAY, WITHOUT THE NOISE</span><h1>Planner</h1><p>Add real tasks, finish them, and keep the next move obvious.</p></div><button class="btn primary" data-action="strati">✦ Ask Strati to plan</button></div>
-    <section class="stitch-planner-grid">
-      <section class="card planner-list-card">
-        <div class="card-head"><div><span class="eyebrow">TODAY</span><h3>${done}/${items.length} complete</h3></div><span class="badge info">${done===items.length?'Done':'In progress'}</span></div>
-        <details class="stitch-add-plan" open><summary>+ Add Plan</summary>
-          <form id="planner-form" class="stitch-add-plan-form planner-add-form">
-            <input class="input" name="title" placeholder="What do you need to do?" required>
-            <select class="input" name="type">${['Study','Homework','Meal','Personal','Break','Other'].map(x=>`<option>${x}</option>`).join('')}</select>
-            <input class="input" name="date" type="date"><input class="input" name="time" type="time"><button class="btn primary planner-add-btn" type="submit">Add to planner</button>
-          </form>
-        </details>
-        <div class="planner-list">${items.map(item=>`<div class="planner-item-row ${item.done?'done':''}"><button class="planner-item ${item.done?'done':''}" data-toggle-task="${attr(item.id)}"><span class="planner-check">${item.done?'✓':''}</span><div class="planner-item-copy"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.time||'Any time')}${item.date?` · ${escapeHtml(item.date)}`:''} · ${escapeHtml(item.type||'Other')}</span></div></button><button class="planner-delete-btn" data-delete-task="${attr(item.id)}" title="Delete">×</button></div>`).join('')}</div>
-      </section>
-      <section class="card planner-next-card stitch-strati-suggest"><span class="eyebrow">STRATI’S NEXT MOVE</span><h2>${escapeHtml(items.find(x=>!x.done)?.title||'Plan complete')}</h2><p>${items.find(x=>!x.done)?'This is the next unfinished item in your plan.':'Everything planned for now is complete.'}</p><button class="btn primary full" data-action="focus-next">Prepare focus →</button><button class="minimal-link" data-action="strati">Tell Strati my situation instead →</button></section>
+  const items=state.data.plannerItems||[];const done=items.filter(x=>x.done).length;const pct=items.length?Math.round(done/items.length*100):0;
+  return `<main class="page planner-page">
+    <section class="page-hero planner-hero"><div class="hero-copy"><span class="kicker">PLAN WITH INTENT</span><h1>Planner</h1><p>Build a day that tells you what to do next—not a list that makes you feel behind.</p></div><div class="hero-stat"><strong>${done}/${items.length}</strong><span>complete</span><div class="thin-progress"><i style="width:${pct}%"></i></div></div></section>
+    <section class="planner-layout">
+      <article class="strata-card planner-stack"><div class="card-top"><div><span class="kicker">TODAY</span><h2>Your study stack</h2></div><span class="pill brand-soft">${pct}% aligned</span></div><div class="task-stack">${items.map((item,i)=>`<div class="task-row ${item.done?'done':''}"><button class="task-toggle" data-toggle-task="${attr(item.id)}"><span class="check-box">${item.done?icon('check'):''}</span><span class="task-time">${escapeHtml(item.time||'—')}</span><span class="task-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.type||'Other')}${item.date?` · ${escapeHtml(item.date)}`:''}</small></span></button><button class="icon-button danger" data-delete-task="${attr(item.id)}" aria-label="Delete ${attr(item.title)}">${icon('trash')}</button></div>`).join('')}</div></article>
+      <aside class="planner-side"><article class="strata-card add-card"><div class="card-top"><div><span class="kicker">ADD A LAYER</span><h2>Make it concrete.</h2></div><span class="round-icon">${icon('plus')}</span></div><form id="planner-form" class="planner-form"><label>Task<input class="input" name="title" placeholder="e.g. Biology chapter 4" required></label><div class="form-split"><label>Type<select class="input" name="type">${['Study','Homework','Meal','Personal','Break','Other'].map(x=>`<option>${x}</option>`).join('')}</select></label><label>Time<input class="input" name="time" type="time"></label></div><label>Date<input class="input" name="date" type="date"></label><button class="btn primary full" type="submit">Add to planner ${icon('arrow')}</button></form></article><article class="strata-card strati-suggest"><span class="kicker">STRATI'S NEXT MOVE</span><h3>${escapeHtml(items.find(x=>!x.done)?.title||'Plan complete')}</h3><p>${items.find(x=>!x.done)?'The next unfinished layer is already clear.':'Everything currently planned is complete.'}</p><button class="btn secondary full" data-action="strati">Tell Strati my situation</button></article></aside>
     </section>
   </main>`;
 }
 
 function focusPage(){
-  const f=state.data.focus; const music=state.data.music||{modeLabel:'Lo-fi',playing:false};
-  return `<main class="page focus-page stitch-focus-page ${f.started?'focus-immersive':''}">
-    <header class="stitch-focus-head"><span class="eyebrow">${f.started?'NO SIDE QUESTS':'DEEP WORK MODE'}</span><h1>${f.started?'Stay with the one thing.':'Focus without friction.'}</h1><p>${escapeHtml(f.goal)}</p></header>
-    <section class="stitch-focus-stage">
-      <div class="stitch-focus-core"><div class="stitch-focus-timer">${formatClock(f.secondsLeft)}</div><div class="stitch-focus-status">${f.started?'LOCKED IN':'READY'}</div><h2>${escapeHtml(f.subject)}</h2><p>${escapeHtml(f.mode)} · ${escapeHtml(f.goal)}</p><div class="focus-controls">${!f.started?'<button class="btn primary" data-action="focus-start">ENTER LOCKED-IN</button>':`<button class="btn primary" data-action="focus-toggle">${f.running?'Pause':'Resume'}</button><button class="btn ghost" data-action="focus-complete">Complete session</button><button class="exit-focus-btn" data-action="focus-exit">Exit</button>`}</div></div>
-      <section class="card session-setup"><span class="eyebrow">SESSION BLUEPRINT</span><label class="field-label">Subject<select id="focus-subject" class="input" ${f.started?'disabled':''}>${['Physics','Mathematics','Chemistry','Biology','English','ICT'].map(s=>`<option ${s===f.subject?'selected':''}>${s}</option>`).join('')}</select></label><label class="field-label">Mode<select id="focus-mode" class="input" ${f.started?'disabled':''}>${['Learn','Practice','Revise','Assignment'].map(s=>`<option ${s===f.mode?'selected':''}>${s}</option>`).join('')}</select></label><label class="field-label">Goal<textarea id="focus-goal" class="input textarea" ${f.started?'disabled':''}>${escapeHtml(f.goal)}</textarea></label><div class="duration-grid">${[15,25,35,40,50].map(d=>`<button class="${d===f.duration?'selected':''}" data-duration="${d}" ${f.started?'disabled':''}><strong>${d}</strong><span>min</span></button>`).join('')}</div></section>
-    </section>
-    <section class="card music-dock stitch-music-card"><div class="card-head"><div><span class="eyebrow">STUDY SOUNDTRACK</span><h3>${escapeHtml(music.modeLabel)}</h3></div><span class="badge purple">Offline ambient</span></div><div class="sound-pills">${Object.keys(OFFLINE_SOUNDTRACKS).map(name=>`<button class="${name===music.modeLabel?'selected':''}" data-music="${attr(name)}">${escapeHtml(name)}</button>`).join('')}</div><div class="offline-audio-panel"><div class="audio-reactive-visualizer ${music.playing?'active':''}">${Array.from({length:12},(_,i)=>`<span style="height:${20+((i*17)%58)}%"></span>`).join('')}</div><div><strong>${escapeHtml(OFFLINE_SOUNDTRACKS[music.modeLabel]||music.modeLabel)}</strong><p>No internet required.</p></div><button class="btn ${music.playing?'ghost':'primary'}" data-action="music-toggle">${music.playing?'Pause':'Play ambient'}</button></div></section>
-    ${f.started?`<section class="card scratchpad-card"><span class="eyebrow">LOCKED-IN SCRATCHPAD</span><h3>Park the thought. Don’t chase it.</h3><textarea id="focus-scratch" class="input textarea" placeholder="A formula, question, or thought to revisit…">${escapeHtml(f.scratch||'')}</textarea></section>`:''}
+  const f=state.data.focus;const music=state.data.music||{modeLabel:'Lo-fi',playing:false};
+  const pct=f.duration?Math.round((1-f.secondsLeft/(f.duration*60))*100):0;
+  return `<main class="page focus-page ${f.started?'immersive':''}">
+    <section class="page-hero focus-hero"><div class="hero-copy"><span class="kicker">${f.started?'NO SIDE QUESTS':'LOCKED-IN MODE'}</span><h1>${f.started?'Stay with the one thing.':'Focus without friction.'}</h1><p>${escapeHtml(f.goal)}</p></div><span class="focus-state ${f.started?'on':''}">${f.started?'● SESSION ACTIVE':'READY TO LOCK IN'}</span></section>
+    <section class="focus-layout"><article class="focus-stage"><div class="focus-orbit" style="--focus-progress:${pct}"><div class="orbit-arc"></div><div class="orbit-inner"><span>${escapeHtml(f.subject)}</span><strong class="focus-timer">${formatClock(f.secondsLeft)}</strong><small>${escapeHtml(f.mode)} · ${f.started?'Locked In':'Ready'}</small></div></div><p class="focus-goal">${escapeHtml(f.goal)}</p><div class="focus-actions">${!f.started?`<button class="btn primary large" data-action="focus-start">Enter Locked-In ${icon('arrow')}</button>`:`<button class="btn primary" data-action="focus-toggle">${f.running?'Pause':'Resume'}</button><button class="btn secondary" data-action="focus-complete">Complete session</button><button class="text-danger" data-action="focus-exit">Exit session</button>`}</div></article>
+      <article class="strata-card blueprint-card"><div class="card-top"><div><span class="kicker">SESSION BLUEPRINT</span><h2>Define the one thing.</h2></div>${icon('focus')}</div><label>Subject<select id="focus-subject" class="input" ${f.started?'disabled':''}>${['Physics','Mathematics','Chemistry','Biology','English','ICT'].map(s=>`<option ${s===f.subject?'selected':''}>${s}</option>`).join('')}</select></label><label>Mode<select id="focus-mode" class="input" ${f.started?'disabled':''}>${['Learn','Practice','Revise','Assignment'].map(s=>`<option ${s===f.mode?'selected':''}>${s}</option>`).join('')}</select></label><label>Goal<textarea id="focus-goal" class="input textarea" ${f.started?'disabled':''}>${escapeHtml(f.goal)}</textarea></label><div class="duration-row">${[15,25,35,40,50].map(d=>`<button class="duration-chip ${d===f.duration?'selected':''}" data-duration="${d}" ${f.started?'disabled':''}><strong>${d}</strong><span>min</span></button>`).join('')}</div></article></section>
+    <section class="focus-bottom"><article class="strata-card soundtrack-card"><div class="card-top"><div><span class="kicker">AMBIENCE LAYER</span><h2>${escapeHtml(music.modeLabel)}</h2></div><span class="pill brand-soft">OFFLINE</span></div><div class="sound-grid">${Object.keys(OFFLINE_SOUNDTRACKS).map(name=>`<button class="sound-chip ${name===music.modeLabel?'selected':''}" data-music="${attr(name)}"><span class="sound-wave"><i></i><i></i><i></i></span>${escapeHtml(name)}</button>`).join('')}</div><div class="now-playing"><div class="audio-bars ${music.playing?'playing':''}">${Array.from({length:14},(_,i)=>`<i style="--h:${22+((i*19)%65)}%"></i>`).join('')}</div><p><strong>${escapeHtml(OFFLINE_SOUNDTRACKS[music.modeLabel])}</strong><small>Generated locally in your browser.</small></p><button class="btn ${music.playing?'secondary':'primary'}" data-action="music-toggle">${music.playing?'Pause':'Play ambient'}</button></div></article>${f.started?`<article class="strata-card scratch-card"><span class="kicker">PARK THE THOUGHT</span><h2>Scratchpad</h2><p>Write it down without leaving the session.</p><textarea id="focus-scratch" class="input textarea tall" placeholder="Formula, question, idea…">${escapeHtml(f.scratch||'')}</textarea></article>`:''}</section>
   </main>`;
 }
 
 function progressPage(){
-  const items=state.data.plannerItems||[]; const completion=items.length?Math.round(items.filter(x=>x.done).length/items.length*100):0; const history=state.data.focusHistory||[]; const minutes=history.reduce((a,x)=>a+(x.minutes||0),0); const consistency=clamp(60+history.length*4,0,96);
-  return `<main class="page stitch-progress-page"><div class="page-title"><span class="eyebrow">PROGRESS INTELLIGENCE</span><h1>Understand how you study.</h1><p>Useful signals, not a wall of analytics.</p></div>
-    <section class="stitch-progress-insights"><section class="card stitch-insight-main"><span class="stitch-insight-icon">⌖</span><div><span class="eyebrow">BEST WINDOW</span><h2>Your best focus window is 7:30–9:00 PM.</h2><p>Keep your hardest analytical work inside the time you are most likely to sustain focus.</p></div></section><section class="card stitch-insight-alert"><span class="eyebrow">NEXT IMPROVEMENT</span><h3>Consistency beats longer sessions.</h3><p>Complete the planned session before adding more time.</p></section></section>
-    <section class="stitch-progress-metrics"><section class="card stitch-metric-card"><span>CONSISTENCY</span><strong>${consistency}%</strong><i style="height:${consistency}%"></i></section><section class="card stitch-metric-card"><span>FOCUS TIME</span><strong>${Math.floor(minutes/60)}h</strong><small>${minutes%60}m</small></section><section class="card stitch-metric-card"><span>COMPLETION</span><strong>${completion}%</strong><i style="height:${completion}%"></i></section><section class="card stitch-metric-card"><span>ATTENTION</span><strong class="metric-subject">Physics</strong><small>Top priority</small></section></section>
-    <section class="card stitch-trajectory-card"><div class="card-head"><div><span class="eyebrow">RECENT FOCUS</span><h2>Your completed Locked-In sessions</h2></div></div><div class="vanilla-history">${history.length?history.slice(-8).map(x=>`<div><strong>${escapeHtml(x.subject)}</strong><span>${x.minutes} min</span></div>`).join(''):'<p class="muted-copy">Complete a Locked-In session to start building your focus history.</p>'}</div></section>
+  const items=state.data.plannerItems||[];const completion=items.length?Math.round(items.filter(x=>x.done).length/items.length*100):0;const history=state.data.focusHistory||[];const minutes=history.reduce((a,x)=>a+(x.minutes||0),0);const consistency=clamp(58+history.length*5+items.filter(x=>x.done).length*3,0,96);
+  const bars=[38,52,46,68,58,78,Math.max(20,consistency)];
+  return `<main class="page progress-page"><section class="page-hero progress-hero"><div class="hero-copy"><span class="kicker">PROGRESS, WITHOUT THE WALL STREET DASHBOARD</span><h1>Read the pattern.</h1><p>Use a few meaningful signals to decide what to improve next.</p></div><div class="progress-spark">${bars.map((v,i)=>`<i style="height:${v}%" class="${i===bars.length-1?'active':''}"></i>`).join('')}<span>7-day momentum</span></div></section>
+    <section class="metric-grid"><article class="metric-tile"><span>CONSISTENCY</span><strong>${consistency}%</strong><small>plan → action</small><div class="metric-line"><i style="width:${consistency}%"></i></div></article><article class="metric-tile"><span>FOCUS TIME</span><strong>${Math.floor(minutes/60)}h ${minutes%60}m</strong><small>completed sessions</small></article><article class="metric-tile"><span>COMPLETION</span><strong>${completion}%</strong><small>today's planner</small><div class="metric-line"><i style="width:${completion}%"></i></div></article><article class="metric-tile"><span>STRONGEST SIGNAL</span><strong>Physics</strong><small>current focus subject</small></article></section>
+    <section class="progress-layout"><article class="strata-card insight-card"><span class="kicker">ONE USEFUL INSIGHT</span><div class="insight-mark">⌁</div><h2>Protect your best focus window.</h2><p>Your strongest pattern is consistency when you begin with one clear task. Keep the hardest analytical work inside a protected 40–50 minute block.</p><div class="insight-action"><span>${icon('clock')} 7:30–9:00 PM</span><button class="text-link" data-nav="focus">Prepare focus ${icon('arrow')}</button></div></article><article class="strata-card history-card"><div class="card-top"><div><span class="kicker">RECENT FOCUS</span><h2>Completed sessions</h2></div><span class="pill brand-soft">${history.length} total</span></div><div class="history-list">${history.length?history.slice(-6).reverse().map((x,i)=>`<div><span class="history-dot"></span><p><strong>${escapeHtml(x.subject)}</strong><small>Locked-In session</small></p><b>${x.minutes} min</b></div>`).join(''):'<div class="empty-state">Complete your first Locked-In session and it will appear here.</div>'}</div></article></section>
   </main>`;
 }
 
 function socialPage(){
-  const real=state.peers||[];
-  const people=real.length?real:[{id:'demo1',name:'Nadia',lockedIn:true,subject:'Physics'},{id:'demo2',name:'Rafi',lockedIn:false,subject:'Chemistry'}];
-  return `<main class="page stitch-social-page"><div class="page-title"><span class="eyebrow">SOCIAL, WITHOUT THE NOISE</span><h1>Stay connected. Stay focused.</h1><p>See who is studying, encourage each other, and keep the interaction useful.</p></div>
-    <section class="stitch-social-grid"><section class="card social-card"><div class="card-head"><div><span class="eyebrow">ACCOUNTABILITY DEMO</span><h3>Study presence</h3></div><span class="badge success">Offline demo</span></div><div class="friend-list">${people.map(p=>`<div class="friend-row"><span class="avatar small">${escapeHtml((p.name||'U').slice(0,2).toUpperCase())}</span><div class="friend-main"><strong>${escapeHtml(p.name)}</strong><span>${p.lockedIn?`🔒 LOCKED IN · ${escapeHtml(p.subject||'Focus')}`:`${escapeHtml(p.subject||'Available')}`}</span></div><button class="encourage-btn" data-encourage="${attr(p.name)}">🔥</button></div>`).join('')}</div></section>
-      <section class="card focus-room-card"><span class="eyebrow">FOCUS TOGETHER</span><h2>Study alongside friends, not inside a feed.</h2><p>Use this section to demonstrate how focused social accountability can work without turning into a distracting feed.</p><button class="btn primary" data-nav="focus">Open Focus →</button></section></section>
+  const people=state.peers||[];const locked=people.filter(x=>x.lockedIn).length;
+  return `<main class="page social-page"><section class="page-hero social-hero"><div class="hero-copy"><span class="kicker">ACCOUNTABILITY, NOT ANOTHER FEED</span><h1>Study near people who are also trying.</h1><p>Presence and encouragement without infinite scrolling.</p></div><div class="social-pulse"><span class="pulse-core">${locked}</span>${people.map((p,i)=>`<i class="pulse-person p${i+1}">${initials(p.name)}</i>`).join('')}<small>friends locked in now</small></div></section>
+    <section class="social-layout"><article class="strata-card presence-card"><div class="card-top"><div><span class="kicker">STUDY PRESENCE</span><h2>Your circle</h2></div><span class="pill success">OFFLINE DEMO</span></div><div class="people-list">${people.map(p=>`<div class="person-row"><span class="avatar large">${initials(p.name)}</span><div><strong>${escapeHtml(p.name)}</strong><small>${p.lockedIn?`Locked in · ${escapeHtml(p.subject)}`:`Available · ${escapeHtml(p.subject)}`}</small></div><span class="presence-state ${p.lockedIn?'locked':''}">${p.lockedIn?'FOCUSING':'OPEN'}</span><button class="icon-button encourage" data-encourage="${attr(p.name)}" aria-label="Encourage ${attr(p.name)}">${icon('flame')}</button></div>`).join('')}</div></article><article class="strata-card no-feed-card"><span class="kicker">DESIGN PRINCIPLE</span><h2>No feed.<br>No follower count.<br>No performance theatre.</h2><p>Stratify Social exists for one reason: make it easier to keep a study promise.</p><div class="quiet-actions"><div><strong>01</strong><span>See who is studying</span></div><div><strong>02</strong><span>Send one-tap encouragement</span></div><div><strong>03</strong><span>Join your own focus session</span></div></div><button class="btn primary full" data-nav="focus">Open Locked-In ${icon('arrow')}</button></article></section>
   </main>`;
 }
 
 function profilePage(){
-  return `<main class="page"><div class="page-title"><span class="eyebrow">YOUR STRATIFY</span><h1>User</h1><p>Offline competition profile</p></div><section class="card profile-hero upgraded-profile"><div class="profile-avatar-ring"><span class="avatar">US</span></div><div class="profile-copy"><span class="eyebrow">STUDENT PROFILE</span><h2>User</h2><p>${escapeHtml(state.data.profile?.grade||'Student')} · ${escapeHtml(state.data.profile?.curriculum||'')}</p></div></section><section class="card"><span class="eyebrow">TECH STACK</span><h3>Vanilla web development</h3><p class="muted-copy">HTML + CSS + plain JavaScript. Planner, Focus and Progress are saved locally in this browser, so this competition build works without internet or a server.</p></section></main>`;
+  return `<main class="page profile-page"><section class="page-hero profile-hero"><div class="hero-copy"><span class="kicker">YOUR STRATIFY</span><h1>Built around the student.</h1><p>A lightweight offline competition profile with no account barrier.</p></div><div class="profile-monogram">US</div></section><section class="profile-grid"><article class="strata-card identity-card"><span class="kicker">STUDENT PROFILE</span><div class="identity-row"><span class="avatar xl">US</span><div><h2>User</h2><p>${escapeHtml(state.data.profile?.grade||'Student')}</p></div></div><dl><div><dt>Curriculum</dt><dd>${escapeHtml(state.data.profile?.curriculum||'')}</dd></div><div><dt>Goal</dt><dd>${escapeHtml(state.data.profile?.goal||'')}</dd></div></dl><div class="profile-principles"><div><b>01</b><span><strong>Zero login barrier</strong><small>Open and demonstrate immediately.</small></span></div><div><b>02</b><span><strong>Offline persistence</strong><small>Planner and progress stay in the browser.</small></span></div><div><b>03</b><span><strong>Student-first scope</strong><small>Five focused areas instead of feature overload.</small></span></div></div></article><article class="strata-card stack-card"><span class="kicker">TECH STACK</span><h2>Pure vanilla web.</h2><div class="tech-pills"><span>HTML</span><span>CSS</span><span>JavaScript</span><span>localStorage</span><span>Web Audio API</span></div><p>No framework. No server required. The competition build runs locally and keeps Planner, Focus and Progress data in the browser.</p></article><article class="strata-card philosophy-card"><span class="kicker">PRODUCT PHILOSOPHY</span><h2>Less surface area.<br>More student clarity.</h2><p>Five focused areas: Planner, Strati, Focus, Progress and Social.</p></article></section></main>`;
 }
 
 function stratiModal(){
   const consultant=state.stratiMode==='consultant';
-  return `<div class="modal-backdrop ai-sheet-backdrop stitch-strati-backdrop"><section class="strati-sheet online-strati-sheet stitch-strati-command"><div class="ai-sheet-head"><div class="ai-avatar-mark">✦</div><div><span class="eyebrow">STRATI ASSISTANT · OFFLINE DEMO</span><h2>Strati Command</h2><p>${consultant?'Support for motivation, stress, overwhelm, and realistic next steps.':'A local competition assistant that can operate Planner, Focus, music, and navigation.'}</p></div><button class="close-btn" data-action="strati-close">×</button></div>
-    <div class="strati-mode-tabs"><button class="${!consultant?'active':''}" data-strati-mode="study">✦ Study Buddy</button><button class="${consultant?'active':''}" data-strati-mode="consultant">♡ Consultant</button></div>
-    <div class="strati-chat-body">${state.stratiMessages.length?state.stratiMessages.map(msg=>`<div class="strati-chat-message ${msg.role==='user'?'user':'assistant'}"><strong>${msg.role==='user'?'YOU':'STRATI'}</strong><p>${escapeHtml(msg.content)}</p></div>`).join(''):`<div class="strati-empty-chat"><span>✦</span><h3>${consultant?'What’s weighing on you?':'Welcome back to Stratify — your Study OS ✦'}</h3><p>${consultant?'Tell me what’s been hard. We can make the next step smaller and more realistic.':'Wanna dive into studying? Tell me what’s going on today.'}</p></div>`}${state.stratiError?`<div class="auth-error">${escapeHtml(state.stratiError)}</div>`:''}</div>
-    <form id="strati-form" class="strati-chat-compose"><textarea class="input" name="message" rows="2" placeholder="Type a command or ask a question…">${escapeHtml(state.stratiDraft)}</textarea><button class="primary" type="submit" ${state.stratiBusy?'disabled':''}>${state.stratiBusy?'Thinking…':'➤'}</button></form><div class="strati-sheet-footer"><span>${consultant?'Supportive guidance — not therapy or medical care.':'Strati can operate Planner, Focus, music, and navigation.'}</span><button class="text-btn" data-action="showcase">Showcase mode</button></div></section></div>`;
+  return `<div class="modal-backdrop"><section class="strati-panel"><header class="strati-head"><div class="strati-mark">${icon('sparkle')}</div><div><span class="kicker">STRATI · OFFLINE COMMAND SURFACE</span><h2>${consultant?'Consultant mode':'Study Buddy'}</h2><p>${consultant?'Supportive guidance for workload, motivation and realistic next steps.':'Operate Planner, Focus, ambience, and your next move from one place.'}</p></div><button class="close-button" data-action="strati-close" aria-label="Close">×</button></header><div class="mode-tabs"><button class="${!consultant?'active':''}" data-strati-mode="study">${icon('sparkle')} Study Buddy</button><button class="${consultant?'active':''}" data-strati-mode="consultant">♡ Consultant</button></div><div class="chat-area">${state.stratiMessages.length?state.stratiMessages.map(msg=>`<div class="chat-message ${msg.role==='user'?'user':'assistant'}"><span>${msg.role==='user'?'YOU':'STRATI'}</span><p>${escapeHtml(msg.content)}</p></div>`).join(''):`<div class="empty-chat"><div class="strati-orb">✦</div><h3>${consultant?'What feels heavy right now?':'Tell me what is happening today.'}</h3><p>${consultant?'I’ll help you reduce it to one manageable next step.':'Try “Add Biology revision at 7 PM” or “Start 25 minute Physics focus”.'}</p></div>`}</div><form id="strati-form" class="chat-compose"><textarea name="message" class="input" rows="2" placeholder="Type a command or question…"></textarea><button class="send-button" type="submit" ${state.stratiBusy?'disabled':''}>${state.stratiBusy?'…':icon('arrow')}</button></form><footer class="strati-footer"><span>${consultant?'Supportive guidance — not therapy or medical care.':'Works locally for competition demonstration.'}</span><button class="text-link" data-action="showcase">Open Showcase</button></footer></section></div>`;
 }
 
 function showcaseOverlay(){
   const [title,copy]=SHOWCASE[state.showcaseStep];
-  return `<div class="showcase-overlay stitch-showcase-stage"><button class="stitch-showcase-exit" data-action="showcase-close">✕ EXIT SHOWCASE</button><div class="stitch-showcase-focus"><span class="stitch-showcase-dot"></span></div><section class="showcase-card stitch-showcase-card"><div class="showcase-count">STEP ${String(state.showcaseStep+1).padStart(2,'0')} / ${String(SHOWCASE.length).padStart(2,'0')}</div><button class="close-btn" data-action="showcase-close">×</button><h2>${escapeHtml(title)}</h2><p>${escapeHtml(copy)}</p><div class="showcase-progress">${SHOWCASE.map((_,i)=>`<span class="${i<=state.showcaseStep?'active':''}"></span>`).join('')}</div><div class="showcase-actions">${state.showcaseStep>0?'<button class="btn ghost" data-showcase-step="-1">← Back</button>':'<span></span>'}<button class="btn primary" data-showcase-step="1">${state.showcaseStep<SHOWCASE.length-1?'Next →':'Finish ✦'}</button></div></section></div>`;
+  return `<div class="showcase-overlay"><div class="showcase-light"></div><button class="showcase-exit" data-action="showcase-close">× EXIT</button><section class="showcase-panel"><span class="showcase-number">${String(state.showcaseStep+1).padStart(2,'0')}</span><span class="kicker">SHOWCASE MODE · ${String(state.showcaseStep+1).padStart(2,'0')} / ${String(SHOWCASE.length).padStart(2,'0')}</span><h2>${escapeHtml(title)}</h2><p>${escapeHtml(copy)}</p><div class="showcase-steps">${SHOWCASE.map((_,i)=>`<i class="${i<=state.showcaseStep?'active':''}"></i>`).join('')}</div><div class="showcase-actions">${state.showcaseStep>0?'<button class="btn secondary" data-showcase-step="-1">← Back</button>':'<span></span>'}<button class="btn primary" data-showcase-step="1">${state.showcaseStep<SHOWCASE.length-1?'Next step':'Finish'} ${icon('arrow')}</button></div></section></div>`;
 }
 
 function render(){
   let page='';
-  if(state.section==='planner') page=plannerPage();
-  else if(state.section==='focus') page=focusPage();
-  else if(state.section==='progress') page=progressPage();
-  else if(state.section==='social') page=socialPage();
-  else if(state.section==='profile') page=profilePage();
-  else page=homePage();
-  root.innerHTML=appShell(page);
-  bindApp();
+  if(state.section==='planner')page=plannerPage();else if(state.section==='focus')page=focusPage();else if(state.section==='progress')page=progressPage();else if(state.section==='social')page=socialPage();else if(state.section==='profile')page=profilePage();else page=homePage();
+  root.innerHTML=appShell(page);bindApp();
 }
-
-function navigate(section){
-  if(state.data?.focus?.started && section!=='focus'){ showToast('Locked-In session active. No side quests 🔒'); return; }
-  state.section=section; state.showcaseStep=-1; render(); document.querySelector('.app-main')?.scrollTo({top:0});
-}
-
+function navigate(section){if(state.data?.focus?.started&&section!=='focus'){showToast('Locked-In session active. No side quests.');return;}state.section=section;state.showcaseStep=-1;render();window.scrollTo({top:0,left:0,behavior:'instant'});document.querySelector('.workspace')?.scrollTo({top:0,left:0,behavior:'instant'});}
 
 function bindApp(){
   root.querySelectorAll('[data-nav]').forEach(btn=>btn.addEventListener('click',()=>navigate(btn.dataset.nav)));
@@ -278,7 +219,7 @@ function bindApp(){
   root.querySelector('[data-action="strati-close"]')?.addEventListener('click',()=>{state.stratiOpen=false;render();});
   root.querySelectorAll('[data-action="showcase"]').forEach(btn=>btn.addEventListener('click',()=>{state.stratiOpen=false;state.showcaseStep=0;state.section=SHOWCASE[0][2];render();}));
   root.querySelectorAll('[data-action="showcase-close"]').forEach(btn=>btn.addEventListener('click',()=>{state.showcaseStep=-1;render();}));
-  root.querySelectorAll('[data-showcase-step]').forEach(btn=>btn.addEventListener('click',()=>{const d=Number(btn.dataset.showcaseStep);const next=state.showcaseStep+d;if(next>=SHOWCASE.length){state.showcaseStep=-1;}else if(next>=0){state.showcaseStep=next;state.section=SHOWCASE[next][2];}render();}));
+  root.querySelectorAll('[data-showcase-step]').forEach(btn=>btn.addEventListener('click',()=>{const d=Number(btn.dataset.showcaseStep);const next=state.showcaseStep+d;if(next>=SHOWCASE.length)state.showcaseStep=-1;else if(next>=0){state.showcaseStep=next;state.section=SHOWCASE[next][2];}render();}));
   root.querySelector('#planner-form')?.addEventListener('submit',addPlannerItem);
   root.querySelectorAll('[data-toggle-task]').forEach(btn=>btn.addEventListener('click',()=>toggleTask(btn.dataset.toggleTask)));
   root.querySelectorAll('[data-delete-task]').forEach(btn=>btn.addEventListener('click',()=>deleteTask(btn.dataset.deleteTask)));
@@ -292,85 +233,28 @@ function bindApp(){
   root.querySelector('#focus-goal')?.addEventListener('input',e=>{state.data.focus.goal=e.target.value;saveState();});
   root.querySelector('#focus-scratch')?.addEventListener('input',e=>{state.data.focus.scratch=e.target.value;saveState();});
   root.querySelectorAll('[data-duration]').forEach(btn=>btn.addEventListener('click',()=>{const d=Number(btn.dataset.duration);Object.assign(state.data.focus,{duration:d,secondsLeft:d*60});saveState();render();}));
-  root.querySelectorAll('[data-music]').forEach(btn=>btn.addEventListener('click',()=>{const wasPlaying=state.data.music.playing;state.data.music.modeLabel=btn.dataset.music;saveState();if(wasPlaying)startAmbientAudio(btn.dataset.music);else render();}));
+  root.querySelectorAll('[data-music]').forEach(btn=>btn.addEventListener('click',()=>{const was=state.data.music.playing;state.data.music.modeLabel=btn.dataset.music;saveState();if(was)startAmbientAudio(btn.dataset.music);else render();}));
   root.querySelector('[data-action="music-toggle"]')?.addEventListener('click',toggleAmbientAudio);
-  root.querySelectorAll('[data-encourage]').forEach(btn=>btn.addEventListener('click',()=>showToast(`🔥 Encouragement sent to ${btn.dataset.encourage}`)));
+  root.querySelectorAll('[data-encourage]').forEach(btn=>btn.addEventListener('click',()=>showToast(`Encouragement sent to ${btn.dataset.encourage} 🔥`)));
   root.querySelectorAll('[data-strati-mode]').forEach(btn=>btn.addEventListener('click',()=>{state.stratiMode=btn.dataset.stratiMode;state.stratiMessages=[];render();}));
   root.querySelector('#strati-form')?.addEventListener('submit',sendStratiMessage);
 }
 
-async function addPlannerItem(e){
-  e.preventDefault(); const form=new FormData(e.currentTarget); const title=String(form.get('title')||'').trim(); if(!title)return;
-  state.data.plannerItems.push({id:uid(),title,type:String(form.get('type')||'Other'),date:String(form.get('date')||''),time:String(form.get('time')||''),done:false}); await saveState(); render(); showToast('Planner item added.');
-}
-async function toggleTask(id){ const item=state.data.plannerItems.find(x=>String(x.id)===String(id)); if(item){item.done=!item.done;await saveState();render();} }
-async function deleteTask(id){ state.data.plannerItems=state.data.plannerItems.filter(x=>String(x.id)!==String(id)); await saveState(); render(); }
-function prepareNextFocus(){ const next=state.data.plannerItems.find(x=>!x.done&&x.type==='Study')||state.data.plannerItems.find(x=>!x.done); if(next){state.data.focus.subject=next.title.split(/[·:-]/)[0].trim()||'Study';state.data.focus.goal=next.title;} state.section='focus'; render(); }
+async function addPlannerItem(e){e.preventDefault();const form=new FormData(e.currentTarget);const title=String(form.get('title')||'').trim();if(!title)return;state.data.plannerItems.push({id:uid(),title,type:String(form.get('type')||'Other'),date:String(form.get('date')||''),time:String(form.get('time')||''),done:false});saveState();render();showToast('Planner layer added.');}
+async function toggleTask(id){const item=state.data.plannerItems.find(x=>String(x.id)===String(id));if(item){item.done=!item.done;saveState();render();}}
+async function deleteTask(id){state.data.plannerItems=state.data.plannerItems.filter(x=>String(x.id)!==String(id));saveState();render();}
+function prepareNextFocus(){const next=state.data.plannerItems.find(x=>!x.done&&x.type==='Study')||state.data.plannerItems.find(x=>!x.done);if(next){state.data.focus.subject=next.title.split(/[·:-]/)[0].trim()||'Study';state.data.focus.goal=next.title;}state.section='focus';render();}
+function startFocus(){const f=state.data.focus;f.started=true;f.running=true;f.secondsLeft=f.duration*60;saveState();startTimer();render();}
+function startTimer(){clearInterval(state.focusTimer);state.focusTimer=setInterval(()=>{const f=state.data?.focus;if(!f?.running)return;if(f.secondsLeft>0){f.secondsLeft--;const el=document.querySelector('.focus-timer');if(el)el.textContent=formatClock(f.secondsLeft);}else completeFocus();},1000);}
+function toggleFocus(){state.data.focus.running=!state.data.focus.running;if(state.data.focus.running)startTimer();saveState();render();}
+function completeFocus(){clearInterval(state.focusTimer);state.focusTimer=null;const f=state.data.focus;(state.data.focusHistory||=[]).push({subject:f.subject,minutes:f.duration,completedAt:new Date().toISOString()});Object.assign(f,{started:false,running:false,secondsLeft:f.duration*60});saveState();render();showToast('Session complete ✦');}
+function exitFocus(){clearInterval(state.focusTimer);state.focusTimer=null;const f=state.data.focus;Object.assign(f,{started:false,running:false,secondsLeft:f.duration*60});saveState();render();}
+function openStrati(){state.stratiOpen=true;render();}
 
-function startFocus(){
-  const f=state.data.focus; f.started=true;f.running=true;f.secondsLeft=f.duration*60; saveState(); startTimer(); render();
-}
-function startTimer(){
-  clearInterval(state.focusTimer);
-  state.focusTimer=setInterval(()=>{
-    const f=state.data?.focus;if(!f?.running)return;
-    if(f.secondsLeft>0){f.secondsLeft--;const el=document.querySelector('.stitch-focus-timer');if(el)el.textContent=formatClock(f.secondsLeft);}
-    else completeFocus();
-  },1000);
-}
-function toggleFocus(){ state.data.focus.running=!state.data.focus.running; if(state.data.focus.running)startTimer(); saveState(); render(); }
-function completeFocus(){
-  clearInterval(state.focusTimer);state.focusTimer=null;const f=state.data.focus;
-  (state.data.focusHistory||=[]).push({subject:f.subject,minutes:f.duration,completedAt:new Date().toISOString()});
-  Object.assign(f,{started:false,running:false,secondsLeft:f.duration*60});saveState();render();showToast('Session complete ✦');
-}
-function exitFocus(){ clearInterval(state.focusTimer);state.focusTimer=null;const f=state.data.focus;Object.assign(f,{started:false,running:false,secondsLeft:f.duration*60});saveState();render(); }
-
-function openStrati(){ state.stratiOpen=true;state.stratiError='';render(); }
-
-function addPlannerFromMessage(message){
-  const match=message.match(/(?:add|schedule|put)\s+(.+?)(?:\s+(?:today|tomorrow))?(?:\s+at\s+([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?))?$/i);
-  if(!match)return null;
-  let title=match[1].trim().replace(/\s+to\s+(?:my\s+)?planner$/i,'').trim();
-  if(!title)return null;
-  const item={id:uid(),title:title[0].toUpperCase()+title.slice(1),date:/tomorrow/i.test(message)?'Tomorrow':'',time:(match[2]||'').trim(),type:/homework/i.test(title)?'Homework':'Study',done:false};
-  state.data.plannerItems.push(item);saveState();return item;
-}
-
-function completePlannerFromMessage(message){
-  const m=message.match(/(?:finished|completed|done with|mark)\s+(.+?)(?:\s+done)?$/i);if(!m)return null;
-  const q=m[1].toLowerCase();const item=state.data.plannerItems.find(x=>x.title.toLowerCase().includes(q)||q.includes(x.title.toLowerCase()));
-  if(item){item.done=true;saveState();return item;}return null;
-}
-
-function startFocusFromMessage(message){
-  const mins=clamp(Number(message.match(/(\d{1,2})\s*(?:min|minute)/i)?.[1])||25,10,60);
-  const subject=['Physics','Chemistry','Biology','Mathematics','Math','English','ICT'].find(x=>new RegExp(x,'i').test(message));
-  if(!/(?:start|focus|study|lock)/i.test(message)||!subject)return null;
-  const normalized=subject==='Math'?'Mathematics':subject;
-  Object.assign(state.data.focus,{subject:normalized,mode:'Study',goal:`Focused ${normalized} session`,duration:mins,secondsLeft:mins*60,started:false,running:false});
-  state.section='focus';saveState();return {subject:normalized,minutes:mins};
-}
-
-function offlineStratiReply(message){
-  const text=message.trim();const lower=text.toLowerCase();
-  if(state.stratiMode==='consultant'){
-    if(/overwhelm|stress|tired|burn|fail|anxious|pressure/.test(lower)) return 'That sounds like a lot at once. Let’s make the next step smaller: choose one urgent subject, work for 15–25 minutes, then take a real break. You do not need to solve the whole week tonight.';
-    return 'Tell me what feels hardest right now — workload, motivation, time, or confidence — and I’ll help you reduce it to one manageable next step.';
-  }
-  const added=addPlannerFromMessage(text);if(added)return `Added “${added.title}” to your Planner${added.time?` at ${added.time}`:''}.`;
-  const completed=completePlannerFromMessage(text);if(completed)return `Marked “${completed.title}” complete ✓`;
-  const focus=startFocusFromMessage(text);if(focus)return `I prepared a ${focus.minutes}-minute ${focus.subject} session. Open Focus when you’re ready to lock in.`;
-  for(const mode of Object.keys(OFFLINE_SOUNDTRACKS)){if(lower.includes(mode.toLowerCase())){state.data.music.modeLabel=mode;saveState();return `${mode} selected for your next focus session.`;}}
-  if(/what.*left|left today|remaining/.test(lower)){const left=state.data.plannerItems.filter(x=>!x.done);return left.length?`You have ${left.length} things left: ${left.slice(0,3).map(x=>x.title).join(', ')}${left.length>3?'…':''}.`:'You’re clear for today — everything in the Planner is complete.';}
-  if(/planner|plan my day|what should i do/.test(lower)){const next=state.data.plannerItems.find(x=>!x.done);return next?`Your next unfinished task is “${next.title}”. I’d keep it simple: finish that first, then reassess.`:'Your plan is clear right now. Add the next important task and I’ll help you focus it.';}
-  return 'I’m running in offline competition mode. Try: “Add Biology revision at 7 PM”, “I finished Chemistry”, “Start 25 minute Physics focus”, or “What’s left today?”';
-}
-
-function sendStratiMessage(e){
-  e?.preventDefault();const textarea=root.querySelector('#strati-form textarea');const message=String(textarea?.value||'').trim();if(!message)return;
-  state.stratiMessages.push({role:'user',content:message});state.stratiBusy=true;render();
-  setTimeout(()=>{const reply=offlineStratiReply(message);state.stratiMessages.push({role:'assistant',content:reply});state.stratiBusy=false;render();},180);
-}
+function addPlannerFromMessage(message){const match=message.match(/(?:add|schedule|put)\s+(.+?)(?:\s+(?:today|tomorrow))?(?:\s+at\s+([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?))?$/i);if(!match)return null;let title=match[1].trim().replace(/\s+to\s+(?:my\s+)?planner$/i,'').trim();if(!title)return null;const item={id:uid(),title:title[0].toUpperCase()+title.slice(1),date:/tomorrow/i.test(message)?'Tomorrow':'',time:(match[2]||'').trim(),type:/homework/i.test(title)?'Homework':'Study',done:false};state.data.plannerItems.push(item);saveState();return item;}
+function completePlannerFromMessage(message){const m=message.match(/(?:finished|completed|done with|mark)\s+(.+?)(?:\s+done)?$/i);if(!m)return null;const q=m[1].toLowerCase();const item=state.data.plannerItems.find(x=>x.title.toLowerCase().includes(q)||q.includes(x.title.toLowerCase()));if(item){item.done=true;saveState();return item;}return null;}
+function startFocusFromMessage(message){const mins=clamp(Number(message.match(/(\d{1,2})\s*(?:min|minute)/i)?.[1])||25,10,60);const subject=['Physics','Chemistry','Biology','Mathematics','Math','English','ICT'].find(x=>new RegExp(x,'i').test(message));if(!/(?:start|focus|study|lock)/i.test(message)||!subject)return null;const normalized=subject==='Math'?'Mathematics':subject;Object.assign(state.data.focus,{subject:normalized,mode:'Study',goal:`Focused ${normalized} session`,duration:mins,secondsLeft:mins*60,started:false,running:false});state.section='focus';saveState();return{subject:normalized,minutes:mins};}
+function offlineStratiReply(message){const text=message.trim();const lower=text.toLowerCase();if(state.stratiMode==='consultant'){if(/overwhelm|stress|tired|burn|fail|anxious|pressure/.test(lower))return 'That sounds like a lot at once. Make the next step smaller: choose one urgent subject, work for 15–25 minutes, then take a real break.';return 'Tell me what feels hardest right now — workload, motivation, time, or confidence — and I’ll reduce it to one manageable next step.';}const added=addPlannerFromMessage(text);if(added)return `Added “${added.title}” to your Planner${added.time?` at ${added.time}`:''}.`;const completed=completePlannerFromMessage(text);if(completed)return `Marked “${completed.title}” complete ✓`;const focus=startFocusFromMessage(text);if(focus)return `Prepared a ${focus.minutes}-minute ${focus.subject} session. Open Focus when you are ready.`;for(const mode of Object.keys(OFFLINE_SOUNDTRACKS)){if(lower.includes(mode.toLowerCase())){state.data.music.modeLabel=mode;saveState();return `${mode} selected for your next focus session.`;}}if(/what.*left|left today|remaining/.test(lower)){const left=state.data.plannerItems.filter(x=>!x.done);return left.length?`You have ${left.length} things left: ${left.slice(0,3).map(x=>x.title).join(', ')}${left.length>3?'…':''}.`:'You are clear for today.';}if(/planner|plan my day|what should i do/.test(lower)){const next=state.data.plannerItems.find(x=>!x.done);return next?`Your next unfinished task is “${next.title}”. Finish that first, then reassess.`:'Your plan is clear right now.';}return 'I’m running in offline competition mode. Try: “Add Biology revision at 7 PM”, “I finished Chemistry”, “Start 25 minute Physics focus”, or “What’s left today?”';}
+function sendStratiMessage(e){e?.preventDefault();const textarea=root.querySelector('#strati-form textarea');const message=String(textarea?.value||'').trim();if(!message)return;state.stratiMessages.push({role:'user',content:message});state.stratiBusy=true;render();setTimeout(()=>{state.stratiMessages.push({role:'assistant',content:offlineStratiReply(message)});state.stratiBusy=false;render();},180);}
 
 bootstrapOffline();
